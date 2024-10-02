@@ -33,3 +33,15 @@ sudo iptables -I FORWARD -j NFQUEUE --queue-num 0
 2. Set Up ARP Spoofing: Run an ARP spoofing tool to intercept and manipulate traffic between the target and the router.
 
 3. Execute SpoofShifter: Run the Python script to start DNS spoofing:
+
+```bash
+sudo python spoofshifter.py
+```
+
+The script will listen for DNS queries and spoof the specified domain (e.g., www.google.com) by returning a fake IP address.
+
+## How it Works
+
+- Packet Interception: SpoofShifter captures network packets using netfilterqueue and processes them.
+- DNS Manipulation: It inspects DNS requests and modifies the response for specific domains to redirect them to a fake IP.
+- Automatic Packet Correction: After modifying the DNS response, SpoofShifter recalculates the packet length and checksum to ensure the altered packets are valid.
