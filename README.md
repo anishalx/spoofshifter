@@ -45,3 +45,38 @@ The script will listen for DNS queries and spoof the specified domain (e.g., www
 - Packet Interception: SpoofShifter captures network packets using netfilterqueue and processes them.
 - DNS Manipulation: It inspects DNS requests and modifies the response for specific domains to redirect them to a fake IP.
 - Automatic Packet Correction: After modifying the DNS response, SpoofShifter recalculates the packet length and checksum to ensure the altered packets are valid.
+
+## Code Breakdown
+
+- **NetfilterQueue**: Used to capture and modify packets.
+- **Scapy**: Handles packet manipulation and DNS spoofing.
+- **Process Flow**: The script inspects DNS requests and sends spoofed responses to hijack the target's web traffic.
+
+## Usage
+
+1. **Clone the repository**:
+
+```bash
+git clone https://github.com/anishalx/spoofshifter.git
+cd SpoofShifter
+```
+
+2. **Run the script**:
+
+```bash
+sudo python3 spoofshifter.py
+```
+
+3. **Stop iptables rule**: After the session, clear the iptables rule:
+
+```bash
+sudo iptables --flush
+```
+
+## Disclaimer
+
+This tool is intended for educational purposes only. Do not use it on networks without proper authorization. The developers are not responsible for any misuse of this tool.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more details.
