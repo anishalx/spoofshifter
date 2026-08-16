@@ -15,7 +15,7 @@ def pyproject():
 
 def test_has_build_system(pyproject):
     assert pyproject["build-system"]["build-backend"] == "setuptools.build_meta"
-    assert "setuptools" in pyproject["build-system"]["requires"]
+    assert any(req.startswith("setuptools") for req in pyproject["build-system"]["requires"])
 
 
 def test_console_script_entry_point(pyproject):

@@ -35,10 +35,10 @@ spoofer, it performs full man-in-the-middle (MitM) sessions on its own.
 - **Config files** (JSON) – CLI flags override file values.
 - **Robust** – malformed packets are passed through instead of crashing the
   loop; per-packet error handling; packet statistics on exit.
-- **Tested** – 158 unit tests covering the engine (including TCP DNS
+- **Tested** – 164 unit tests covering the engine (including TCP DNS
   mutation, fragment handling, the recon mode and query ranking), firewall
-  helpers, ARP spoofer, config loading, the runner and the systemd unit
-  (runs on any platform).
+  helpers, ARP spoofer, config loading, the runner, the systemd unit and the
+  packaging metadata (runs on any platform).
 
 ## Requirements
 
@@ -50,7 +50,28 @@ sudo apt-get install libnetfilter-queue-dev iptables
 pip install -r requirements.txt
 ```
 
+## Installation
+
+Install from the repository (Linux recommended; the test-suite runs anywhere):
+
+```bash
+pip install .                 # installs the `spoofshifter` command
+pip install -e .              # editable install for development
+pip install -e '.[dev]'       # + pytest for the test-suite
+```
+
+This installs a `spoofshifter` console command (equivalent to running
+`spoofshifter.py` from a checkout). The `netfilterqueue` dependency is
+Linux-only and is skipped automatically on other platforms. To run from a
+checkout without installing, use `sudo python3 spoofshifter.py` directly.
+
 ## Usage
+
+```bash
+sudo spoofshifter -d www.google.com@10.0.2.4
+```
+
+or from a checkout:
 
 ```bash
 sudo python3 spoofshifter.py -d www.google.com@10.0.2.4
@@ -156,7 +177,8 @@ sudo mkdir -p /etc/spoofshifter
 sudo cp config.example.json /etc/spoofshifter/config.json
 sudo nano /etc/spoofshifter/config.json
 
-# 3. Install the unit (adjust ExecStart if your python/repo paths differ)
+# 3. Install the unit (adjust ExecStart to your install: either the pip
+#    binary `/usr/local/bin/spoofshifter` or a checkout + venv interpreter)
 sudo cp systemd/spoofshifter.service /etc/systemd/system/
 sudo systemctl daemon-reload
 
@@ -197,7 +219,7 @@ spoofshifter/
   arp.py               # ARP spoofing companion + IP forwarding
   runner.py            # NetfilterQueue binding and lifecycle
   cli.py               # wiring, banner, cleanup
-tests/                 # 158 unit tests
+tests/                 # 164 unit tests
 systemd/               # spoofshifter.service unit file
 config.example.json    # sample config file
 ```
