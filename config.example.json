@@ -1,0 +1,19 @@
+{
+  "queue": 0,
+  "mode": "reply",
+  "ttl": 300,
+  "manage_iptables": true,
+  "bypass": true,
+  "rules": [
+    { "domain": "www.google.com", "ipv4": "10.0.2.4" },
+    { "domain": "*.example.com", "ipv4": "10.0.2.4", "ipv6": "fd00::1" },
+    "mail.yahoo.com@10.0.2.4"
+  ],
+  "arp": {
+    "enabled": false,
+    "target": "192.168.1.100",
+    "gateway": "192.168.1.1",
+    "interface": "eth0",
+    "interval": 2
+  }
+}

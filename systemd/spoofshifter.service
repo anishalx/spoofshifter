@@ -1,0 +1,56 @@
+# SpoofShifter systemd unit.
+#
+# Install:
+#   sudo cp config.example.json /etc/spoofshifter/config.json   (then edit rules)
+#   sudo cp systemd/spoofshifter.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now spoofshifter
+#
+# Adjust ExecStart if your install differs (venv interpreter, repo path).
+# Logs:  journalctl -u spoofshifter -f
+# Status: systemctl status spoofshifter
+
+[Unit]
+Description=SpoofShifter DNS spoofing service
+Documentation=https://github.com/anishalx/spoofshifter
+# ARP spoofing resolves real MAC addresses, so wait for a configured network.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Root is required: NFQUEUE capture, iptables rules and ARP spoofing all need
+# elevated privileges, so the service cannot be sandboxed to an unprivileged
+# user. The hardening flags below still limit what it can touch.
+User=root
+Group=root
+
+# Point ExecStart at your installation. Use the venv interpreter if you
+# installed dependencies into a virtualenv, e.g.:
+#   ExecStart=/opt/spoofshifter/.venv/bin/python3 /opt/spoofshifter/spoofshifter.py -c /etc/spoofshifter/config.json
+ExecStart=/usr/bin/python3 /opt/spoofshifter/spoofshifter.py -c /etc/spoofshifter/config.json
+
+# Flush log lines so spoofing activity shows up in the journal immediately.
+Environment=PYTHONUNBUFFERED=1
+
+# On stop, systemd sends SIGTERM. SpoofShifter catches it, unbinds the queue,
+# removes the iptables rules it installed and restores ARP tables / IP
+# forwarding - give that cleanup a moment to finish.
+TimeoutStopSec=10
+
+# Keep the service alive after a crash. Firewall rules are only ever left
+# behind if the process is killed with SIGKILL; graceful stops always clean up.
+Restart=on-failure
+RestartSec=3
+
+# Hardening: the service only needs the network stack, so keep the rest of
+# the filesystem read-only and give it a private /tmp. /proc/sys remains
+# writable, so the IP-forwarding toggle in ARP mode still works.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

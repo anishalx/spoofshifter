@@ -1,0 +1,9 @@
+# Runtime
+scapy>=2.5
+
+# Linux only: required to capture packets via NFQUEUE (SpoofShifter itself
+# only runs on Linux, but the test-suite runs anywhere).
+netfilterqueue>=0.4.2; sys_platform == 'linux'
+
+# Development (test suite)
+pytest>=7

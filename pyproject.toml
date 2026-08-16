@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spoofshifter"
+version = "2.0.0"
+description = "Advanced DNS spoofing tool for authorized penetration testing"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+dependencies = [
+    "scapy>=2.5",
+    # Packet capture is Linux-only; skip it on other platforms so the
+    # package (and the test-suite) installs anywhere.
+    "netfilterqueue>=0.4.2; sys_platform == 'linux'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+spoofshifter = "spoofshifter.cli:main"
+
+[tool.setuptools]
+# Only ship the package: the root spoofshifter.py wrapper is a convenience
+# script for running from a checkout, not an importable module.
+packages = ["spoofshifter"]
+py-modules = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = [
+    # scapy 2.7 made DNS qd/an/ns/ar PacketListFields; tests use [0] indexing
+    "ignore:.*PacketListField.*:DeprecationWarning",
+]
