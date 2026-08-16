@@ -1,4 +1,7 @@
-import tomllib
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover - Python < 3.11
+    import tomli as tomllib
 from pathlib import Path
 
 import pytest
@@ -33,7 +36,7 @@ def test_entry_point_is_callable_and_returns_exit_code():
 
 def test_runtime_dependencies(pyproject):
     deps = pyproject["project"]["dependencies"]
-    assert "scapy>=2.5" in deps
+    assert "scapy>=2.7" in deps
     # netfilterqueue is Linux-only and must carry the platform marker so the
     # package installs (and tests run) anywhere.
     assert any("netfilterqueue" in dep and "sys_platform == 'linux'" in dep for dep in deps)

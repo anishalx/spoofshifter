@@ -207,9 +207,10 @@ Notes:
   sandboxed with `ProtectSystem=strict`, `ProtectHome` and a private `/tmp`.
 - For headless operation add `--quiet --no-arp-restore` to `ExecStart` to
   keep the journal clean and skip ARP restore packets on shutdown. To log
-  events to a file instead of the journal, add `--log-file /var/log/spoofshifter/spoofshifter.log`
-  and uncomment `ReadWritePaths=/var/log/spoofshifter` in the unit
-  (`ProtectSystem=strict` makes the rest of the filesystem read-only).
+  events to a file and/or write a pidfile, add `--log-file` / `--pidfile`
+  and uncomment `ReadWritePaths=` in the unit (the shipped unit uses
+  `ProtectSystem=strict`, which makes the filesystem read-only - including
+  `/run`, so a pidfile there needs the exception too).
 - With `Type=simple` systemd already tracks the process itself, so a pidfile
   is only needed for other supervisors; add `--pidfile /run/spoofshifter.pid`
   if you use one.
@@ -231,9 +232,13 @@ sudo ./tools/self_test.sh
 It checks that (1) listen mode observes a real DNS query and forwards it
 untouched, (2) reply mode answers a genuine query with a forged A record that
 the test client receives and validates (transaction-id echo + rdata), (3)
-`--top-domains` aggregates and prints the ranking on exit, and (4) every run
-removes its own iptables rules on SIGTERM and exits cleanly. No real DNS
-server is contacted (the query is answered and dropped by the tool itself).
+`--top-domains` aggregates and prints the ranking on exit, (4) the FORWARD
+chain is exercised with a second network namespace - a victim inside the
+namespace queries through the host and receives the forged answer (skipped
+cleanly if netns/veth are unavailable), and (5) every run removes its own
+iptables rules on SIGTERM and exits cleanly. No real DNS server is contacted
+(the query is answered and dropped by the tool itself), and no internet
+access is needed.
 
 ## Development
 

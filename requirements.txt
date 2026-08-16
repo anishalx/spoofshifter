@@ -1,5 +1,5 @@
-# Runtime
-scapy>=2.5
+# Runtime (2.7+ for the DNS PacketListField behaviour the tool relies on)
+scapy>=2.7
 
 # Linux only: required to capture packets via NFQUEUE (SpoofShifter itself
 # only runs on Linux, but the test-suite runs anywhere).

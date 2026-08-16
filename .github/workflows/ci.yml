@@ -22,7 +22,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install scapy pytest
+        run: pip install scapy pytest "tomli>=2; python_version < '3.11'"
 
       - name: Compile check all Python sources
         run: python -m compileall -q spoofshifter tests

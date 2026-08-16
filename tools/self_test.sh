@@ -10,7 +10,10 @@
 #   2. reply mode answers a genuine DNS query with a forged A record, which
 #      the test client receives and validates (id echo + rdata)
 #   3. recon mode aggregates --top-domains and prints the ranking on exit
-#   4. every run is stopped with SIGTERM and the script verifies the tool
+#   4. the FORWARD path is exercised with a second network namespace: a
+#      victim inside the namespace queries through the host and receives the
+#      forged answer (skipped if netns/veth are unavailable)
+#   5. every run is stopped with SIGTERM and the script verifies the tool
 #      removed its own iptables rules and exited cleanly
 #
 # The "resolver" address 192.0.2.1 (TEST-NET-1) is never actually contacted:
@@ -28,17 +31,25 @@ command -v "$PYTHON" >/dev/null 2>&1 || PYTHON="python"
 SERVER="192.0.2.1"      # TEST-NET-1: never reached, no internet needed
 PASS=0
 FAIL=0
+SKIP=0
 TOOL_PID=""
+# FORWARD-test topology (created/removed in test 4)
+NS="ss-victim"
+VETH0="ss-veth0"
+VETH1="ss-veth1"
+IPFWD=""
 
 say()  { printf '%s\n' "$*"; }
 ok()   { say "  [PASS] $*"; PASS=$((PASS + 1)); }
 bad()  { say "  [FAIL] $*"; FAIL=$((FAIL + 1)); }
+skip() { say "  [SKIP] $*"; SKIP=$((SKIP + 1)); }
 step() { say ""; say "=== $* ==="; }
 die()  { say "[-] $*"; exit 1; }
 
 # --- environment checks ----------------------------------------------------
 [[ $EUID -eq 0 ]] || die "Run as root: sudo $0"
 command -v iptables >/dev/null 2>&1 || die "'iptables' is required on this system."
+command -v ip >/dev/null 2>&1 || die "'ip' (iproute2) is required on this system."
 "$PYTHON" -c "import scapy, netfilterqueue" 2>/dev/null \
     || die "install the tool's dependencies first: pip install scapy netfilterqueue"
 
@@ -118,10 +129,13 @@ print("sent query for %s to %s" % (name, sys.argv[1]))
 PYEOF
 }
 
-# expect_answer <name> <expected-ip> -> sends a query and validates the reply
+# expect_answer <name> <expected-ip> [cmd...] -> sends a query and validates
+# the reply; the optional trailing command runs the client through it (e.g.
+# 'ip netns exec ss-victim' to test the FORWARD path from another namespace).
 expect_answer() {
     local name="$1" expected="$2"
-    "$PYTHON" - expect "$SERVER" "$name" "$expected" <<'PYEOF'
+    shift 2
+    "$@" "$PYTHON" - expect "$SERVER" "$name" "$expected" <<'PYEOF'
 import socket, struct, sys
 
 def build_query(name, tid):
@@ -153,7 +167,7 @@ PYEOF
 # --- cleanup (safety net; graceful shutdown should have done all of this) ---
 cleanup() {
     [[ -n "$TOOL_PID" ]] && kill -9 "$TOOL_PID" 2>/dev/null
-    for q in 1 2 3; do
+    for q in 1 2 3 4; do
         for chain in FORWARD OUTPUT; do
             for proto in udp tcp; do
                 iptables -t filter -D "$chain" -p "$proto" --dport 53 \
@@ -161,8 +175,15 @@ cleanup() {
             done
         done
     done
+    # FORWARD-test leftovers (safety net; graceful shutdown handles the rest)
+    iptables -t filter -D FORWARD -i "$VETH0" -j ACCEPT 2>/dev/null
+    iptables -t filter -D FORWARD -o "$VETH0" -j ACCEPT 2>/dev/null
+    ip route del 192.0.2.0/24 dev "$VETH0" 2>/dev/null
+    ip link del "$VETH0" 2>/dev/null
+    ip netns del "$NS" 2>/dev/null
+    [[ -n "$IPFWD" ]] && echo "$IPFWD" > /proc/sys/net/ipv4/ip_forward 2>/dev/null
     say ""
-    say "==== $PASS passed, $FAIL failed ===="
+    say "==== $PASS passed, $FAIL failed, $SKIP skipped ===="
     [[ $FAIL -eq 0 ]]
 }
 trap cleanup EXIT
@@ -229,6 +250,58 @@ else
     bad "tool did not bind NFQUEUE 3 (see $L3)"
 fi
 rm -f "$L3"
+
+# --- 4. FORWARD path via a second network namespace -----------------------
+step "Test 4 - FORWARD chain via a second network namespace"
+if ip netns add "$NS" 2>/dev/null; then
+    ok "created network namespace $NS"
+    IPFWD="$(cat /proc/sys/net/ipv4/ip_forward 2>/dev/null || echo 0)"
+    if ip link add "$VETH0" type veth peer name "$VETH1" 2>/dev/null; then
+        ip link set "$VETH1" netns "$NS"
+        ip addr add 10.200.0.1/24 dev "$VETH0" 2>/dev/null
+        ip link set "$VETH0" up
+        ip netns exec "$NS" ip addr add 10.200.0.2/24 dev "$VETH1" 2>/dev/null
+        ip netns exec "$NS" ip link set "$VETH1" up
+        ip netns exec "$NS" ip route add default via 10.200.0.1 2>/dev/null
+        # Pin the fake resolver's route to the veth: a packet reinjected by
+        # NFQUEUE in the FORWARD chain keeps the routing decision of the
+        # original query, so the forged response must leave on the same
+        # interface the victim is on.
+        ip route add 192.0.2.0/24 dev "$VETH0" 2>/dev/null
+        echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null
+        ok "veth pair up: host 10.200.0.1 <-> victim 10.200.0.2"
+
+        # Let the test traffic through any host firewall. These rules sit
+        # below the tool's NFQUEUE rules (inserted later with -I), so the
+        # query still hits the queue first; they only let the forged response
+        # be forwarded back to the namespace.
+        iptables -t filter -I FORWARD -i "$VETH0" -j ACCEPT 2>/dev/null
+        iptables -t filter -I FORWARD -o "$VETH0" -j ACCEPT 2>/dev/null
+
+        L4="$(mktemp)"
+        start_tool "$L4" -d "test4.example.com@10.9.9.9" --queue 4
+        if wait_ready "$L4" 4; then
+            ok "tool bound to NFQUEUE 4"
+            if expect_answer "test4.example.com" "10.9.9.9" ip netns exec "$NS"; then
+                ok "victim in the namespace received the forged A record via FORWARD"
+            else
+                bad "FORWARD-path spoofing failed (see $L4)"
+            fi
+            grep -q "spoofing test4.example.com A -> 10.9.9.9" "$L4" \
+                && ok "FORWARD spoofing event was logged" \
+                || bad "no FORWARD spoofing event in the log (see $L4)"
+        else
+            bad "tool did not bind NFQUEUE 4 (see $L4)"
+        fi
+        stop_tool "$L4" 0
+        check_no_rules
+        rm -f "$L4"
+    else
+        bad "could not create the veth pair (see dmesg)"
+    fi
+else
+    skip "network namespaces are not available on this system (ip netns add failed)"
+fi
 
 say ""
 say "All live end-to-end checks finished."
