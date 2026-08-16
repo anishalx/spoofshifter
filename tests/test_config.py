@@ -171,6 +171,91 @@ def test_top_domains_invalid_limit():
         load_config(parse_args("--list-domains", "--top-domains", "0"))
 
 
+# ---------------------------------------------------------------------------
+# --no-arp-restore
+# ---------------------------------------------------------------------------
+
+def test_arp_restore_enabled_by_default():
+    cfg = load_config(parse_args("-d", "example.com@10.0.2.4"))
+    assert cfg.arp_restore is True
+
+
+def test_no_arp_restore_flag():
+    cfg = load_config(parse_args("-d", "example.com@10.0.2.4", "--no-arp-restore"))
+    assert cfg.arp_restore is False
+
+
+def test_arp_restore_from_file(tmp_path):
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "arp_restore": False})
+    assert load_config(parse_args("-c", path)).arp_restore is False
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "arp_restore": True})
+    assert load_config(parse_args("-c", path)).arp_restore is True
+
+
+def test_no_arp_restore_cli_overrides_file(tmp_path):
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "arp_restore": True})
+    assert load_config(parse_args("-c", path, "--no-arp-restore")).arp_restore is False
+
+
+# ---------------------------------------------------------------------------
+# --pidfile
+# ---------------------------------------------------------------------------
+
+def test_pidfile_flag():
+    cfg = load_config(parse_args("-d", "example.com@10.0.2.4", "--pidfile", "/run/spoofshifter.pid"))
+    assert cfg.pidfile == "/run/spoofshifter.pid"
+
+
+def test_pidfile_default_none():
+    cfg = load_config(parse_args("-d", "example.com@10.0.2.4"))
+    assert cfg.pidfile is None
+
+
+def test_pidfile_from_file(tmp_path):
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "pidfile": "/run/s.pid"})
+    assert load_config(parse_args("-c", path)).pidfile == "/run/s.pid"
+
+
+def test_pidfile_cli_overrides_file(tmp_path):
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "pidfile": "/run/a.pid"})
+    assert load_config(parse_args("-c", path, "--pidfile", "/run/b.pid")).pidfile == "/run/b.pid"
+
+
+def test_pidfile_invalid_file_value(tmp_path):
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "pidfile": 42})
+    with pytest.raises(ConfigError, match="invalid pidfile"):
+        load_config(parse_args("-c", path))
+
+
+# ---------------------------------------------------------------------------
+# --log-file
+# ---------------------------------------------------------------------------
+
+def test_log_file_flag():
+    cfg = load_config(parse_args("-d", "example.com@10.0.2.4", "--log-file", "/var/log/s.log"))
+    assert cfg.log_file == "/var/log/s.log"
+
+
+def test_log_file_default_none():
+    assert load_config(parse_args("-d", "example.com@10.0.2.4")).log_file is None
+
+
+def test_log_file_from_file(tmp_path):
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "log_file": "/var/log/s.log"})
+    assert load_config(parse_args("-c", path)).log_file == "/var/log/s.log"
+
+
+def test_log_file_cli_overrides_file(tmp_path):
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "log_file": "/var/log/a.log"})
+    assert load_config(parse_args("-c", path, "--log-file", "/var/log/b.log")).log_file == "/var/log/b.log"
+
+
+def test_log_file_invalid_value(tmp_path):
+    path = _write_config(tmp_path, {"rules": ["example.com@10.0.2.4"], "log_file": 42})
+    with pytest.raises(ConfigError, match="invalid log_file"):
+        load_config(parse_args("-c", path))
+
+
 def test_top_domains_invalid_file_value(tmp_path):
     path = _write_config(tmp_path, {"mode": "listen", "rules": [], "top_domains": "many"})
     with pytest.raises(ConfigError, match="invalid top_domains value"):

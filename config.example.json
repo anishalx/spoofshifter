@@ -4,6 +4,7 @@
   "ttl": 300,
   "manage_iptables": true,
   "bypass": true,
+  "arp_restore": true,
   "rules": [
     { "domain": "www.google.com", "ipv4": "10.0.2.4" },
     { "domain": "*.example.com", "ipv4": "10.0.2.4", "ipv6": "fd00::1" },

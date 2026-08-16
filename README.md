@@ -32,13 +32,22 @@ spoofer, it performs full man-in-the-middle (MitM) sessions on its own.
   restores ARP tables and IP forwarding on exit.
 - **Graceful shutdown** – Ctrl-C / SIGTERM unbinds the queue, removes the
   firewall rules, restores ARP and IP forwarding.
+- **Headless-friendly** – `--quiet` suppresses the banner and on-exit report
+  (errors still surface), `--no-arp-restore` skips ARP restore packets on
+  shutdown, `--pidfile` writes the instance PID for supervisors (rejects a
+  live second instance, cleans up stale files, never touches a foreign
+  pidfile), and `--log-file` writes timestamped spoofing events to a file
+  even while the console is quiet.
 - **Config files** (JSON) – CLI flags override file values.
 - **Robust** – malformed packets are passed through instead of crashing the
   loop; per-packet error handling; packet statistics on exit.
-- **Tested** – 164 unit tests covering the engine (including TCP DNS
-  mutation, fragment handling, the recon mode and query ranking), firewall
-  helpers, ARP spoofer, config loading, the runner, the systemd unit and the
-  packaging metadata (runs on any platform).
+- **Tested** – 208 unit + integration tests covering the engine (including
+  TCP DNS mutation, fragment handling, the recon mode and query ranking),
+  firewall helpers, ARP spoofer, config loading, the runner, full
+  transaction simulations (wire-valid checksums, resolver-style parsing),
+  the pidfile lifecycle, log-file handling, the systemd unit and the
+  packaging metadata (runs on any platform). Plus `tools/self_test.sh` for a
+  live kernel-level run on Linux.
 
 ## Requirements
 
@@ -127,8 +136,11 @@ sudo python3 spoofshifter.py --list-domains --top-domains 25   # top 25
 | `--gateway IP` | Gateway/router IP for ARP spoofing. |
 | `-i, --iface IFACE` | Network interface for ARP spoofing. |
 | `--arp-interval SEC` | Seconds between ARP poison packets (default `2`). |
+| `--no-arp-restore` | Don't send ARP restore packets on shutdown (thread stops, IP forwarding still restored). |
+| `--pidfile FILE` | Write the instance PID to FILE; refuse to start if another live instance holds it; remove it on shutdown. |
+| `--log-file FILE` | Write timestamped spoofing events to FILE (always at INFO level, even with `--quiet`; `-v` raises it to DEBUG). |
 | `-v, --verbose` | Debug logging. |
-| `--quiet` | Only log errors. |
+| `--quiet` | Only log errors; suppress the banner and the on-exit report (headless/service use). |
 
 ### Manual iptables (if you prefer)
 
@@ -193,10 +205,35 @@ journalctl -u spoofshifter -f        # live spoofing logs
 Notes:
 - The service runs as root (required for NFQUEUE/iptables/ARP) but is
   sandboxed with `ProtectSystem=strict`, `ProtectHome` and a private `/tmp`.
+- For headless operation add `--quiet --no-arp-restore` to `ExecStart` to
+  keep the journal clean and skip ARP restore packets on shutdown. To log
+  events to a file instead of the journal, add `--log-file /var/log/spoofshifter/spoofshifter.log`
+  and uncomment `ReadWritePaths=/var/log/spoofshifter` in the unit
+  (`ProtectSystem=strict` makes the rest of the filesystem read-only).
+- With `Type=simple` systemd already tracks the process itself, so a pidfile
+  is only needed for other supervisors; add `--pidfile /run/spoofshifter.pid`
+  if you use one.
 - On stop, systemd sends SIGTERM; SpoofShifter's cleanup removes the iptables
   rules it installed and restores ARP state before exiting.
 - If the process is killed with SIGKILL the firewall rules stay behind; on the
   next start remove stale rules with `sudo iptables -t filter -L FORWARD -n --line-numbers`.
+
+## Live end-to-end test
+
+On a real Linux box (root), `tools/self_test.sh` verifies the tool through
+the genuine kernel path – iptables, NFQUEUE, real UDP sockets – without
+needing internet access or a second host:
+
+```bash
+sudo ./tools/self_test.sh
+```
+
+It checks that (1) listen mode observes a real DNS query and forwards it
+untouched, (2) reply mode answers a genuine query with a forged A record that
+the test client receives and validates (transaction-id echo + rdata), (3)
+`--top-domains` aggregates and prints the ranking on exit, and (4) every run
+removes its own iptables rules on SIGTERM and exits cleanly. No real DNS
+server is contacted (the query is answered and dropped by the tool itself).
 
 ## Development
 
@@ -218,8 +255,10 @@ spoofshifter/
   firewall.py          # iptables/ip6tables rule management
   arp.py               # ARP spoofing companion + IP forwarding
   runner.py            # NetfilterQueue binding and lifecycle
+  pidfile.py           # pidfile claim/release for supervisors
   cli.py               # wiring, banner, cleanup
-tests/                 # 164 unit tests
+tests/                 # 208 unit + integration tests
+tools/self_test.sh     # live end-to-end test (Linux, root)
 systemd/               # spoofshifter.service unit file
 config.example.json    # sample config file
 ```

@@ -152,9 +152,15 @@ class ArpSpoofer:
             )
             self._stop.wait(self.interval)
 
-    def restore(self) -> None:
-        """Send correct ARP entries, stop poisoning, restore IP forwarding."""
-        if self.target_mac and self.gateway_mac and self.our_mac:
+    def restore(self, restore_arp: bool = True) -> None:
+        """Undo poisoning: restore ARP tables, stop the thread, restore IP forwarding.
+
+        With ``restore_arp=False`` (``--no-arp-restore``) the correct-ARP
+        packets are not sent - useful for headless/service use where the
+        shutdown should not poke the victim and gateway.  The poison thread is
+        always stopped and IP forwarding is always restored.
+        """
+        if restore_arp and self.target_mac and self.gateway_mac and self.our_mac:
             try:
                 sendp(
                     build_restore_packet(self.gateway_mac, self.target_ip, self.target_mac, self.gateway_ip),
@@ -167,6 +173,8 @@ class ArpSpoofer:
                 log.info("[+] ARP tables restored for %s and %s", self.target_ip, self.gateway_ip)
             except Exception:
                 log.exception("failed to send ARP restore packets")
+        elif not restore_arp:
+            log.info("[+] ARP restore skipped (--no-arp-restore)")
         self._stop.set()
         if self._thread is not None:
             self._thread.join(timeout=2.0)

@@ -35,10 +35,13 @@ class Config:
     mode: str = "reply"
     ttl: int = 300
     manage_iptables: bool = True
+    pidfile: Optional[str] = None
+    log_file: Optional[str] = None
     table: str = "filter"
     ipv6_rules: bool = False
     bypass: bool = True
     arp: Optional[ArpConfig] = None
+    arp_restore: bool = True  # send correct-ARP packets on shutdown
     verbose: int = 0
     top_domains: Optional[int] = None  # limit for the on-exit ranking, None = off
 
@@ -168,6 +171,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="JSON config file (CLI flags override it)",
     )
     parser.add_argument(
+        "--pidfile", metavar="FILE",
+        help="write the process PID to FILE; refuse to start if another live "
+             "instance holds it, and remove it on shutdown",
+    )
+    parser.add_argument(
+        "--log-file", metavar="FILE",
+        help="write spoofing events to FILE (timestamps included); the file "
+             "always records at INFO even with --quiet",
+    )
+    parser.add_argument(
         "-q", "--queue", type=int, metavar="NUM",
         help="NFQUEUE number to bind (default 0)",
     )
@@ -216,12 +229,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="seconds between ARP poison packets (default 2)",
     )
     parser.add_argument(
+        "--no-arp-restore", action="store_true", default=None,
+        help="on shutdown, do not send ARP restore packets (the poison thread "
+             "stops and IP forwarding is still restored)",
+    )
+    parser.add_argument(
         "-v", "--verbose", action="count", default=0,
         help="verbose logging (-v debug)",
     )
     parser.add_argument(
         "--quiet", action="store_true",
-        help="only log errors",
+        help="only log errors; suppress the startup banner and the on-exit "
+             "report (for headless/service use)",
     )
     parser.add_argument(
         "--version", action="version", version=f"%(prog)s {__version__}",
@@ -268,6 +287,18 @@ def load_config(args: argparse.Namespace) -> Config:
 
     table = "nat" if _pick(args.nat, file_cfg.get("nat"), False) else "filter"
 
+    pidfile = _pick(args.pidfile, file_cfg.get("pidfile"), None)
+    if pidfile == "":
+        pidfile = None
+    if pidfile is not None and not isinstance(pidfile, str):
+        raise ConfigError(f"invalid pidfile: {pidfile!r}")
+
+    log_file = _pick(args.log_file, file_cfg.get("log_file"), None)
+    if log_file == "":
+        log_file = None
+    if log_file is not None and not isinstance(log_file, str):
+        raise ConfigError(f"invalid log_file: {log_file!r}")
+
     file_no_iptables = None
     if "manage_iptables" in file_cfg:
         file_no_iptables = not bool(file_cfg["manage_iptables"])
@@ -277,6 +308,11 @@ def load_config(args: argparse.Namespace) -> Config:
     if "bypass" in file_cfg:
         file_no_bypass = not bool(file_cfg["bypass"])
     bypass = not bool(_pick(args.no_bypass, file_no_bypass, False))
+
+    file_no_arp_restore = None
+    if "arp_restore" in file_cfg:
+        file_no_arp_restore = not bool(file_cfg["arp_restore"])
+    arp_restore = not bool(_pick(args.no_arp_restore, file_no_arp_restore, False))
 
     default_ip = args.ip or file_cfg.get("default_ip")
 
@@ -336,10 +372,13 @@ def load_config(args: argparse.Namespace) -> Config:
         mode=mode,
         ttl=ttl,
         manage_iptables=manage_iptables,
+        pidfile=pidfile,
+        log_file=log_file,
         table=table,
         ipv6_rules=ipv6_rules,
         bypass=bypass,
         arp=arp,
+        arp_restore=arp_restore,
         verbose=verbose,
         top_domains=top_domains,
     )

@@ -17,22 +17,51 @@ from .firewall import (
     remove_redirect_rules,
     require_root,
 )
+from .pidfile import PidfileError, remove_pidfile, write_pidfile
 from .runner import DnsSpoofRunner, RunnerError
 
 log = logging.getLogger("spoofshifter")
 
 
-def setup_logging(verbose: int) -> None:
+class LoggingError(Exception):
+    """Raised when the log file cannot be opened."""
+
+
+def setup_logging(verbose: int, log_file: Optional[str] = None) -> None:
+    """Configure console and (optionally) file logging.
+
+    Console: -v/-vv debug, default info, --quiet errors only.
+    File: always records at least INFO (the spoofing events), so headless
+    runs keep a persistent log even with --quiet; -v raises it to DEBUG.
+    The file format includes timestamps; the console format stays compact.
+    """
+    logger = logging.getLogger("spoofshifter")
+    logger.handlers.clear()  # idempotent across repeated calls (tests)
+    logger.setLevel(logging.DEBUG)
+
     if verbose >= 1:
-        level = logging.DEBUG
-        fmt = "%(levelname)s %(name)s: %(message)s"
+        console_level, console_fmt = logging.DEBUG, "%(levelname)s %(name)s: %(message)s"
     elif verbose == 0:
-        level = logging.INFO
-        fmt = "%(message)s"
+        console_level, console_fmt = logging.INFO, "%(message)s"
     else:
-        level = logging.ERROR
-        fmt = "%(message)s"
-    logging.basicConfig(level=level, format=fmt)
+        console_level, console_fmt = logging.ERROR, "%(message)s"
+
+    console = logging.StreamHandler(sys.stderr)
+    console.setLevel(console_level)
+    console.setFormatter(logging.Formatter(console_fmt))
+    logger.addHandler(console)
+
+    if log_file:
+        try:
+            file_handler = logging.FileHandler(log_file, encoding="utf-8")
+        except OSError as exc:
+            raise LoggingError(f"cannot open log file {log_file!r}: {exc}") from exc
+        file_level = logging.DEBUG if verbose >= 1 else logging.INFO
+        file_handler.setLevel(file_level)
+        file_handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S",
+        ))
+        logger.addHandler(file_handler)
 
 
 def print_banner(cfg: Config) -> None:
@@ -69,6 +98,8 @@ def cleanup(
     added_rules: List[List[str]],
     arp_spoofer: Optional[ArpSpoofer] = None,
     runner: Optional[DnsSpoofRunner] = None,
+    arp_restore: bool = True,
+    pidfile: Optional[str] = None,
 ) -> None:
     """Best-effort teardown in dependency order; never raises."""
     if runner is not None:
@@ -78,9 +109,14 @@ def cleanup(
             log.exception("error stopping the packet queue")
     if arp_spoofer is not None:
         try:
-            arp_spoofer.restore()
+            arp_spoofer.restore(restore_arp=arp_restore)
         except Exception:
             log.exception("error restoring ARP state")
+    if pidfile:
+        try:
+            remove_pidfile(pidfile)
+        except Exception:
+            log.exception("error removing pidfile")
     if added_rules:
         try:
             remove_redirect_rules(added_rules)
@@ -96,11 +132,24 @@ def main(argv: Optional[List[str]] = None) -> int:
     except (ConfigError, SpoofError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
-    setup_logging(cfg.verbose)
+    try:
+        setup_logging(cfg.verbose, cfg.log_file)
+    except LoggingError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     if not cfg.rules and cfg.mode != "listen":
         print("error: no spoofing rules configured (use -d DOMAIN[@IP] or --config)", file=sys.stderr)
         return 2
+
+    # Claim the pidfile before touching the firewall: a second live instance
+    # must be rejected before it can disturb the iptables rules.
+    if cfg.pidfile:
+        try:
+            write_pidfile(cfg.pidfile)
+        except PidfileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
 
     added_rules: List[List[str]] = []
     arp_spoofer: Optional[ArpSpoofer] = None
@@ -119,7 +168,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             arp_spoofer.setup()
             arp_spoofer.start()
     except (FirewallError, ArpError) as exc:
-        cleanup(added_rules, arp_spoofer)
+        cleanup(added_rules, arp_spoofer, arp_restore=cfg.arp_restore, pidfile=cfg.pidfile)
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
@@ -130,7 +179,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         raise KeyboardInterrupt()
 
     previous_sigterm = signal.signal(signal.SIGTERM, _on_sigterm)
-    print_banner(cfg)
+    if cfg.verbose >= 0:
+        print_banner(cfg)
     try:
         runner.start()
         runner.run_forever()
@@ -141,11 +191,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         pass  # already logged by run_forever
     finally:
         signal.signal(signal.SIGTERM, previous_sigterm)
-        cleanup(added_rules, arp_spoofer, runner)
-        print(engine.stats.summary())
-        if cfg.top_domains is not None:
-            print()
-            print_top_domains(engine.stats, cfg.top_domains)
+        cleanup(added_rules, arp_spoofer, runner, arp_restore=cfg.arp_restore, pidfile=cfg.pidfile)
+        if cfg.verbose >= 0:
+            print(engine.stats.summary())
+            if cfg.top_domains is not None:
+                print()
+                print_top_domains(engine.stats, cfg.top_domains)
     return 0
 
 

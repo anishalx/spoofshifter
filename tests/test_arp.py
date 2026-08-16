@@ -217,3 +217,36 @@ def test_spoofer_poisons_and_restores(monkeypatch):
 def test_restore_without_start_is_safe():
     spoofer = ArpSpoofer("eth0", "192.168.1.100", "192.168.1.1")
     spoofer.restore()  # must not raise
+    spoofer.restore(restore_arp=False)  # must not raise either
+
+
+def test_restore_skips_arp_packets_when_disabled(monkeypatch):
+    sent = []
+    forwarding = {"restored": 0}
+
+    def fake_sendp(pkt, **kwargs):
+        sent.append(pkt)
+
+    monkeypatch.setattr(arp, "get_own_mac", lambda iface: "00:11:22:33:44:55")
+    monkeypatch.setattr(
+        arp, "resolve_mac",
+        lambda ip, iface: "aa:bb:cc:dd:ee:ff" if ip == "192.168.1.100" else "11:22:33:44:55:66",
+    )
+    monkeypatch.setattr(arp, "sendp", fake_sendp)
+    monkeypatch.setattr(arp, "enable_ip_forwarding", lambda: None)
+    monkeypatch.setattr(arp, "restore_ip_forwarding", lambda: forwarding.__setitem__("restored", 1))
+
+    spoofer = ArpSpoofer("eth0", "192.168.1.100", "192.168.1.1", interval=0.05)
+    spoofer.setup()
+    spoofer.start()
+    time.sleep(0.08)  # let the poison thread fire
+    spoofer.restore(restore_arp=False)
+
+    # Poison packets were sent, but no correct-ARP restore packets.
+    assert sent, "expected poison packets"
+    assert not any(
+        p[ARP].hwsrc == "11:22:33:44:55:66" and p[ARP].psrc == "192.168.1.1"
+        for p in sent
+    ), "no restore packet should have been sent"
+    assert spoofer._thread is None or not spoofer._thread.is_alive()
+    assert forwarding == {"restored": 1}  # IP forwarding still restored

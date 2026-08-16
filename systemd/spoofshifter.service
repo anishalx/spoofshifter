@@ -52,5 +52,9 @@ PrivateTmp=yes
 ProtectHome=yes
 ProtectSystem=strict
 
+# If you add --log-file to ExecStart, grant write access to its directory
+# (ProtectSystem=strict makes the rest of the filesystem read-only):
+# ReadWritePaths=/var/log/spoofshifter
+
 [Install]
 WantedBy=multi-user.target
