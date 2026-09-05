@@ -22,10 +22,13 @@ def test_main_invalid_rule_returns_2(capsys):
 
 
 def test_main_requires_linux(capsys):
-    # On this platform (Windows) the root/Linux check must fail cleanly.
+    # The root/Linux check must fail cleanly (exit 1) before the runtime is
+    # touched. The exact message differs by environment: Windows says the
+    # tool requires Linux, while a non-root POSIX box says to run with sudo.
     code = cli.main(["-d", "example.com@10.0.2.4", "--no-iptables"])
     assert code == 1
-    assert "Linux" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "Linux" in err or "root privileges" in err
 
 
 def test_main_list_domains_needs_no_rules(capsys):
@@ -33,7 +36,8 @@ def test_main_list_domains_needs_no_rules(capsys):
     # not the "no spoofing rules" usage error.
     code = cli.main(["--list-domains", "--no-iptables"])
     assert code == 1
-    assert "Linux" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "Linux" in err or "root privileges" in err
 
 
 def test_print_top_domains_ranked(capsys):
