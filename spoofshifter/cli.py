@@ -79,6 +79,7 @@ def print_banner(cfg: Config) -> None:
                 ) if part
             )
             print(f"  {rule.domain:<32} {addresses:<44} ttl={rule.ttl}")
+    print("[!] Authorized use only: run this only against networks you own or have explicit permission to test.")
     print("Waiting for DNS traffic (Ctrl-C to stop)...")
     print()
 

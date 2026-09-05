@@ -123,6 +123,20 @@ def test_default_mode_prints_banner_and_summary(capsys, monkeypatch):
     assert "summary:" in out              # on-exit report shown
 
 
+def test_banner_includes_legal_disclaimer(capsys, monkeypatch):
+    code = _main_with_fake_runner(monkeypatch, "-d", "example.com@10.0.2.4")
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Authorized use only" in out   # banner carries the disclaimer
+
+
+def test_quiet_mode_suppresses_disclaimer_too(capsys, monkeypatch):
+    code = _main_with_fake_runner(monkeypatch, "-d", "example.com@10.0.2.4", "--quiet")
+    out = capsys.readouterr().out
+    assert code == 0
+    assert "Authorized use only" not in out
+
+
 def test_quiet_listen_mode_suppresses_top_domains(capsys, monkeypatch):
     code = _main_with_fake_runner(monkeypatch, "--list-domains", "--top-domains", "--quiet")
     assert code == 0
