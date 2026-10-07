@@ -21,7 +21,39 @@ log = logging.getLogger("spoofshifter")
 
 
 class PidfileError(Exception):
-    """Raised when a pidfile cannot be claimed (e.g. another instance runs)."""
+    """Raised when a pidfile cannot be claimed (e.g. another instance runs)"""
+
+
+if os.name == "nt":  # pragma: no cover - exercised on Windows CI/dev boxes
+    import ctypes
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    _kernel32.OpenProcess.restype = ctypes.c_void_p
+    _kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+
+    def _probe(pid: int) -> None:
+        """Check that a pid exists without signalling it.
+
+        ``os.kill(pid, 0)`` must not be used on Windows: signal 0 is the
+        value of ``CTRL_C_EVENT``, so it would inject a Ctrl+C into the
+        caller's console (and still fail for processes without one).
+        """
+        handle = _kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if handle:
+            _kernel32.CloseHandle(handle)
+            return
+        err = ctypes.get_last_error()
+        if err == 5:  # ERROR_ACCESS_DENIED -> exists, owned by someone else
+            raise PermissionError(f"process {pid} exists but is not ours")
+        # ERROR_INVALID_PARAMETER (87) and friends -> no such process
+        raise ProcessLookupError(f"no such process: {pid}")
+
+else:
+
+    def _probe(pid: int) -> None:
+        os.kill(pid, 0)
 
 
 def pid_alive(pid: int) -> bool:
@@ -29,7 +61,7 @@ def pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
     try:
-        os.kill(pid, 0)
+        _probe(pid)
     except ProcessLookupError:
         return False
     except PermissionError:

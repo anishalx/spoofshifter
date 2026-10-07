@@ -16,7 +16,9 @@ def test_pid_alive_detects_live_process():
 
 
 def test_pid_alive_handles_os_errors(monkeypatch):
-    def fake_kill(pid, sig):
+    # Patch the probe seam rather than os.kill: on Windows os.kill(pid, 0)
+    # means CTRL_C_EVENT and is never called by pid_alive.
+    def fake_probe(pid):
         if pid == 1:
             raise ProcessLookupError()
         if pid == 2:
@@ -25,7 +27,7 @@ def test_pid_alive_handles_os_errors(monkeypatch):
             raise OSError("unexpected")
         return None
 
-    monkeypatch.setattr(pidfile.os, "kill", fake_kill)
+    monkeypatch.setattr(pidfile, "_probe", fake_probe)
     assert not pid_alive(1)   # no such process
     assert pid_alive(2)       # exists but owned by another user
     assert not pid_alive(3)   # unexpected error -> assume gone
