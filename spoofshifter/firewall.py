@@ -100,10 +100,22 @@ def add_redirect_rules(
 
 
 def remove_redirect_rules(rules: Sequence[Sequence[str]]) -> None:
-    """Delete exactly the rules that were added (``-I`` becomes ``-D``)."""
+    """Delete exactly the rules that were added (``-I`` becomes ``-D``).
+
+    A rule is built as ``<binary> -t <table> -I <chain> ...``; only the
+    ``-I`` flag (the insert action) becomes ``-D`` (the delete action). The
+    table name must stay intact, so the flag is located by value rather than
+    by a fixed index.
+    """
     for cmd in reversed(rules):
         delete = list(cmd)
-        delete[2] = "-D"  # iptables -t <table> -D <chain> ...
+        try:
+            delete[delete.index("-I")] = "-D"
+        except ValueError:
+            # Not a rule this module generated - refuse to run a malformed
+            # command rather than risk deleting an unrelated rule.
+            log.warning("cannot build a delete command (no -I flag): %s", " ".join(cmd))
+            continue
         try:
             _run_cmd(delete)
             log.debug("removed rule: %s", " ".join(delete))

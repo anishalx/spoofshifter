@@ -146,9 +146,13 @@ def test_remove_rules_turns_insert_into_delete(monkeypatch):
          "-j", "NFQUEUE", "--queue-num", "0", "--queue-bypass"],
     ]
     remove_redirect_rules(rules)
-    assert [cmd[2] for cmd in calls] == ["-D", "-D"]
+    # Only the insert flag (-I) becomes -D; the table name must be preserved.
+    assert [cmd[3] for cmd in calls] == ["-D", "-D"]
+    assert [cmd[2] for cmd in calls] == ["filter", "filter"]
     assert [cmd[4] for cmd in calls] == ["OUTPUT", "FORWARD"]  # reversed order
     assert calls[0][4] == "OUTPUT"
+    # A valid delete command never contains the insert flag any more.
+    assert all("-I" not in cmd for cmd in calls)
 
 
 def test_remove_rules_tolerates_already_gone(monkeypatch):
